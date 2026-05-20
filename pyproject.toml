@@ -8,10 +8,44 @@ version = "0.1.0"
 description = "Experimental non-transformer AI architecture with routing and external memory."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "CortexMesh contributors" },
+]
+keywords = [
+  "ai",
+  "external-memory",
+  "non-transformer",
+  "pytorch",
+  "research",
+  "sequence-modeling",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "torch>=2.0",
   "numpy>=1.24",
 ]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hakille-ai/CortexMesh"
+Repository = "https://github.com/Hakille-ai/CortexMesh"
+Issues = "https://github.com/Hakille-ai/CortexMesh/issues"
 
 [project.scripts]
 cortexmesh-demo = "cortexmesh.demo:main"

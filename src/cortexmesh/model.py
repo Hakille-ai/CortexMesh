@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import torch
 from torch import nn
 
@@ -11,6 +14,9 @@ from .modules import ConceptField, MemoryLattice, PredictionHead, RouteMixer, Si
 
 class CortexMesh(nn.Module):
     """Small experimental model with concept routing and external memory."""
+
+    config_filename = "config.json"
+    weights_filename = "pytorch_model.bin"
 
     def __init__(self, config: CortexMeshConfig) -> None:
         super().__init__()
@@ -26,6 +32,23 @@ class CortexMesh(nn.Module):
             config.rule_classes,
             config.route_hidden_dim,
         )
+
+    def save_pretrained(self, path: str | Path) -> None:
+        """Save config and model weights to a local directory."""
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        self.config.save_json(path / self.config_filename)
+        torch.save(self.state_dict(), path / self.weights_filename)
+
+    @classmethod
+    def from_pretrained(cls, path: str | Path, map_location: str | torch.device | None = "cpu") -> "CortexMesh":
+        """Load a CortexMesh model from a local directory."""
+        path = Path(path)
+        config = CortexMeshConfig.load_json(path / cls.config_filename)
+        model = cls(config)
+        state_dict = _load_state_dict(path / cls.weights_filename, map_location=map_location)
+        model.load_state_dict(state_dict)
+        return model
 
     def forward(self, tokens: torch.Tensor, return_internal: bool = True) -> dict[str, torch.Tensor]:
         if tokens.ndim != 2:
@@ -71,3 +94,13 @@ class CortexMesh(nn.Module):
                 }
             )
         return output
+
+
+def _load_state_dict(path: Path, map_location: str | torch.device | None) -> dict[str, Any]:
+    try:
+        state_dict = torch.load(path, map_location=map_location, weights_only=True)
+    except TypeError:
+        state_dict = torch.load(path, map_location=map_location)
+    if not isinstance(state_dict, dict):
+        raise ValueError("Model weights file must contain a state_dict")
+    return state_dict

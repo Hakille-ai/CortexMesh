@@ -1,5 +1,7 @@
 # CortexMesh v0
 
+[![Tests](https://github.com/Hakille-ai/CortexMesh/actions/workflows/tests.yml/badge.svg)](https://github.com/Hakille-ai/CortexMesh/actions/workflows/tests.yml)
+
 CortexMesh is a small PyTorch research prototype for testing a non-transformer
 sequence model. It processes character tokens through concept compression,
 external memory slots, and gated routing cycles.
@@ -41,17 +43,24 @@ src/cortexmesh/
   modules.py     SignalEncoder, ConceptField, MemoryLattice, RouteMixer, head
   model.py       CortexMesh assembly and forward pass
   trainer.py     CPU-friendly synthetic training loop
+  evaluation.py  accuracy and internal-state metrics
   inference.py   generate_text, solve_rule_task, recall_memory helpers
+  experimental.py standalone research components
   demo.py        command-line demo
 
 examples/
   text_demo.py    tiny text generation example
   rule_demo.py    digit-rule classification and next-symbol example
   memory_demo.py  key/value memory recall example
+  inspect_memory.py read-weight and memory inspection example
+  save_and_reload.py local persistence roundtrip example
   _common.py      shared example setup
 
+benchmarks/
+  run_benchmark.py reproducible CPU benchmark smoke runner
+
 tests/
-  test_cortexmesh.py
+  test_*.py
 ```
 
 ## Install
@@ -62,10 +71,10 @@ From the repository root:
 python -m pip install -e .
 ```
 
-For tests, install `pytest` if it is not already available:
+For tests, install the test extra:
 
 ```powershell
-python -m pip install pytest
+python -m pip install -e ".[test]"
 ```
 
 ## Quick Start
@@ -124,6 +133,19 @@ Use fewer steps for a fast smoke test:
 python examples/text_demo.py --steps 2
 ```
 
+Inspect memory usage and test save/reload:
+
+```powershell
+python examples/inspect_memory.py --steps 2
+python examples/save_and_reload.py --steps 2
+```
+
+Run the minimal CPU benchmark:
+
+```powershell
+python benchmarks/run_benchmark.py --config tiny --steps 2 --batch-size 4
+```
+
 ## Minimal API
 
 ```python
@@ -137,6 +159,23 @@ trainer = Trainer(model, tokenizer)
 report = trainer.train_steps(steps=30, batch_size=16)
 
 print(report["first_loss"], report["last_loss"])
+```
+
+Save and reload a local model:
+
+```python
+model.save_pretrained("checkpoints/cortexmesh-demo")
+same_model = CortexMesh.from_pretrained("checkpoints/cortexmesh-demo")
+```
+
+Evaluate one synthetic batch:
+
+```python
+from cortexmesh import SyntheticTaskFactory, evaluate_batch
+
+batch = SyntheticTaskFactory(tokenizer, seq_len=config.max_seq_len).make_batch(8)
+metrics = evaluate_batch(model, batch)
+print(metrics)
 ```
 
 Inference helpers:
@@ -189,20 +228,39 @@ This keeps the demo self-contained. There is no external dataset download.
 python -m pytest
 ```
 
-The current tests cover:
+The tests include coverage for:
 
 - forward-pass output shapes;
 - `MemoryLattice` read/write behavior;
 - short fixed-batch CPU training;
 - training reports with evaluation breakdowns;
 - reproducible synthetic batches with metadata;
+- persistence roundtrips;
+- evaluation metrics;
+- experimental holographic memory;
+- benchmark smoke execution;
 - example execution.
+
+The same command is used by the GitHub Actions workflow in
+`.github/workflows/tests.yml` on Python 3.10, 3.11, and 3.12.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): current model path, internal tensors,
+  and task surface.
+- [Evaluation](docs/EVALUATION.md): local checks, measured losses, and current
+  benchmark limits.
+- [Roadmap](docs/ROADMAP.md): research ideas and future evaluation work.
 
 ## Research Roadmap
 
 The current v1 research notes live in [docs/ROADMAP.md](docs/ROADMAP.md).
 They prioritize memory binding, richer synthetic curricula, separate skill
 metrics, CPU benchmarks, and a clearer research-kit API.
+
+## License
+
+CortexMesh is available under the MIT License. See [LICENSE](LICENSE).
 
 ## Current Limits
 

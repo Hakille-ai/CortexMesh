@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass, fields
+from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,37 @@ class CortexMeshConfig:
     route_hidden_dim: int = 96
     max_seq_len: int = 64
     rule_classes: int = 4
+
+    def to_dict(self) -> dict[str, int]:
+        """Return a JSON-serializable representation of this config."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CortexMeshConfig":
+        """Build a config from a dictionary."""
+        field_names = {field.name for field in fields(cls)}
+        unknown = sorted(set(data) - field_names)
+        if unknown:
+            raise ValueError(f"Unknown config field(s): {', '.join(unknown)}")
+
+        config = cls(**{name: data[name] for name in field_names if name in data})
+        config.validate()
+        return config
+
+    def save_json(self, path: str | Path) -> None:
+        """Save this config as JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        contents = json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        path.write_text(contents, encoding="utf-8")
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> "CortexMeshConfig":
+        """Load a config from a JSON file."""
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Config JSON must contain an object")
+        return cls.from_dict(data)
 
     def validate(self) -> None:
         if self.vocab_size < 2:
