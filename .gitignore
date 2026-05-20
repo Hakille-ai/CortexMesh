@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# CortexMesh experiments
+checkpoints/
+runs/
+outputs/
+artifacts/
+*.pt
+*.pth
+*.ckpt
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
