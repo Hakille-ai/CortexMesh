@@ -37,3 +37,8 @@ The bundled `SyntheticTaskFactory` generates three CPU-friendly task families:
 These tasks are intentionally small. They are useful for smoke tests,
 architecture debugging, and early comparisons between internal variants, not for
 claiming broad language-model capability.
+
+`TextCorpusFactory` adds a small user-data path for local experiments. It slices
+an inline string or text file into next-character batches compatible with
+`Trainer`, using the same `[inputs, targets]` shape as the synthetic tasks while
+leaving rule and recall masks disabled.

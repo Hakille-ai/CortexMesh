@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from examples.custom_text_dataset import run as run_custom_text_dataset
 from examples.inspect_memory import run as run_inspect_memory
 from examples.save_and_reload import run as run_save_and_reload
 
@@ -27,3 +28,19 @@ def test_save_and_reload_example_smoke() -> None:
         assert "after" in report
     else:
         assert "No CortexMesh save/reload API" in report["message"]
+
+
+def test_custom_text_dataset_example_smoke() -> None:
+    report = run_custom_text_dataset(
+        text="custom cortex mesh text corpus for a tiny smoke test. " * 2,
+        steps=1,
+        batch_size=2,
+        seq_len=12,
+        seed=31,
+        prompt="custom",
+    )
+
+    assert report["source"] == "inline"
+    assert report["vocab_size"] >= 2
+    assert report["steps"] == 1
+    assert len(report["sample"]) > len("custom")

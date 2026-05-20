@@ -38,6 +38,18 @@ The tests also verify reproducible synthetic batches with metadata. This makes
 it possible to compare short experiments with fixed seeds, while keeping the
 project free of external dataset downloads.
 
+For local text experiments, `TextCorpusFactory` can turn an inline string or a
+UTF-8 file into deterministic next-character batches:
+
+```python
+from cortexmesh import CharTokenizer, TextCorpusFactory
+
+text = "tiny local corpus " * 8
+tokenizer = CharTokenizer.from_text(text)
+factory = TextCorpusFactory(text, tokenizer, seq_len=24, seed=13)
+batch = factory.make_batch(4, fixed_cycle=True)
+```
+
 The `cortexmesh.evaluation` module also exposes lightweight metrics for a model
 output or batch:
 

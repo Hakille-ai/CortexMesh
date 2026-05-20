@@ -1,9 +1,11 @@
-"""Synthetic data and tokenization utilities."""
+"""Tokenization, synthetic tasks, and custom text-corpus utilities."""
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, overload
 
 import torch
@@ -18,6 +20,8 @@ class CharTokenizer:
     def __init__(self, alphabet: str = DEFAULT_ALPHABET) -> None:
         if len(set(alphabet)) != len(alphabet):
             raise ValueError("alphabet must not contain duplicate characters")
+        if " " not in alphabet:
+            raise ValueError("alphabet must contain a space for unknown characters")
         self.alphabet = alphabet
         self.stoi = {char: idx for idx, char in enumerate(alphabet)}
         self.itos = {idx: char for char, idx in self.stoi.items()}
@@ -39,6 +43,48 @@ class CharTokenizer:
         if isinstance(ids, torch.Tensor):
             ids = ids.detach().cpu().tolist()
         return "".join(self.itos.get(int(idx), " ") for idx in ids)
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a JSON-serializable tokenizer description."""
+
+        return {"alphabet": self.alphabet}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "CharTokenizer":
+        """Build a tokenizer from serialized data."""
+
+        alphabet = data.get("alphabet")
+        if not isinstance(alphabet, str):
+            raise ValueError("Tokenizer data must include an alphabet string")
+        return cls(alphabet=alphabet)
+
+    def save_json(self, path: str | Path) -> None:
+        """Save this tokenizer to JSON."""
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        contents = json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        path.write_text(contents, encoding="utf-8")
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> "CharTokenizer":
+        """Load a tokenizer from JSON."""
+
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Tokenizer JSON must contain an object")
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_text(
+        cls,
+        text: str,
+        extra_alphabet: str = DEFAULT_ALPHABET,
+    ) -> "CharTokenizer":
+        """Create a tokenizer that covers the default alphabet plus text chars."""
+
+        alphabet = _unique_chars(extra_alphabet + text.lower())
+        return cls(alphabet=alphabet)
 
 
 @dataclass
@@ -297,3 +343,112 @@ class SyntheticTaskFactory:
                 "memory_answers": answers,
             },
         )
+
+
+class TextCorpusFactory:
+    """Create next-character batches from a user-provided text corpus."""
+
+    def __init__(
+        self,
+        text: str,
+        tokenizer: CharTokenizer | None = None,
+        seq_len: int = 32,
+        seed: int = 7,
+        name: str = "inline",
+    ) -> None:
+        if seq_len < 1:
+            raise ValueError("seq_len must be at least 1")
+        if not text:
+            raise ValueError("text corpus must not be empty")
+
+        self.raw_text = text
+        self.tokenizer = tokenizer or CharTokenizer.from_text(text)
+        self.seq_len = seq_len
+        self.seed = seed
+        self.name = name
+        self.rng = random.Random(seed)
+        self.ids = self.tokenizer.encode(text)
+        while len(self.ids) < self.seq_len + 1:
+            self.ids.extend(self.ids or [self.tokenizer.unknown_id])
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | Path,
+        tokenizer: CharTokenizer | None = None,
+        seq_len: int = 32,
+        seed: int = 7,
+        encoding: str = "utf-8",
+    ) -> "TextCorpusFactory":
+        """Load a text corpus from a local file."""
+
+        path = Path(path)
+        return cls(
+            path.read_text(encoding=encoding),
+            tokenizer=tokenizer,
+            seq_len=seq_len,
+            seed=seed,
+            name=str(path),
+        )
+
+    @property
+    def max_start(self) -> int:
+        return max(0, len(self.ids) - self.seq_len - 1)
+
+    def make_batch(
+        self,
+        batch_size: int,
+        device: torch.device | str | None = None,
+        fixed_cycle: bool = False,
+    ) -> SyntheticBatch:
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
+
+        starts: list[int] = []
+        inputs: list[list[int]] = []
+        targets: list[list[int]] = []
+        span = self.max_start + 1
+        stride = max(1, self.seq_len // 2)
+        for idx in range(batch_size):
+            if fixed_cycle:
+                start = (idx * stride) % span
+            else:
+                start = self.rng.randrange(span)
+            window = self.ids[start : start + self.seq_len + 1]
+            inputs.append(window[:-1])
+            targets.append(window[1:])
+            starts.append(start)
+
+        tensor_device = torch.device(device) if device is not None else None
+        zeros = torch.zeros(batch_size, dtype=torch.long, device=tensor_device)
+        false_mask = torch.zeros(batch_size, dtype=torch.bool, device=tensor_device)
+        return SyntheticBatch(
+            inputs=torch.tensor(inputs, dtype=torch.long, device=tensor_device),
+            targets=torch.tensor(targets, dtype=torch.long, device=tensor_device),
+            rule_labels=zeros.clone(),
+            rule_mask=false_mask.clone(),
+            recall_targets=zeros.clone(),
+            recall_mask=false_mask.clone(),
+            metadata={
+                "seed": self.seed,
+                "seq_len": self.seq_len,
+                "batch_size": batch_size,
+                "fixed_cycle": fixed_cycle,
+                "task_types": ["text_corpus"] * batch_size,
+                "task_counts": {"text_corpus": batch_size},
+                "source_name": self.name,
+                "source_chars": len(self.raw_text),
+                "source_tokens": len(self.ids),
+                "offsets": starts,
+            },
+        )
+
+
+def _unique_chars(text: str) -> str:
+    seen: set[str] = set()
+    chars: list[str] = []
+    for char in text:
+        if char not in seen:
+            chars.append(char)
+            seen.add(char)
+    return "".join(chars)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -54,6 +55,8 @@ class Trainer:
         device: str | torch.device | None = None,
         grad_clip: float = 1.0,
         label_smoothing: float = 0.02,
+        factory: Any | None = None,
+        eval_factory: Any | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer or CharTokenizer()
@@ -61,13 +64,11 @@ class Trainer:
         self.grad_clip = grad_clip
         self.label_smoothing = label_smoothing
         self.model.to(self.device)
-        self.factory = SyntheticTaskFactory(
+        task_seq_len = seq_len or model.config.max_seq_len
+        self.factory = factory or SyntheticTaskFactory(self.tokenizer, seq_len=task_seq_len)
+        self.eval_factory = eval_factory or SyntheticTaskFactory(
             self.tokenizer,
-            seq_len=seq_len or model.config.max_seq_len,
-        )
-        self.eval_factory = SyntheticTaskFactory(
-            self.tokenizer,
-            seq_len=seq_len or model.config.max_seq_len,
+            seq_len=task_seq_len,
             seed=101,
         )
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)

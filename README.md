@@ -39,7 +39,7 @@ PyTorch is used for tensors, modules, autograd, and optimization.
 ```text
 src/cortexmesh/
   config.py      model dimensions and validation
-  data.py        character tokenizer and synthetic task generator
+  data.py        tokenizer, synthetic tasks, and custom text corpus batches
   modules.py     SignalEncoder, ConceptField, MemoryLattice, RouteMixer, head
   model.py       CortexMesh assembly and forward pass
   trainer.py     CPU-friendly synthetic training loop
@@ -52,6 +52,7 @@ examples/
   text_demo.py    tiny text generation example
   rule_demo.py    digit-rule classification and next-symbol example
   memory_demo.py  key/value memory recall example
+  custom_text_dataset.py train on an inline string or local text file
   inspect_memory.py read-weight and memory inspection example
   save_and_reload.py local persistence roundtrip example
   _common.py      shared example setup
@@ -133,6 +134,13 @@ Use fewer steps for a fast smoke test:
 python examples/text_demo.py --steps 2
 ```
 
+Train on your own small text corpus:
+
+```powershell
+python examples/custom_text_dataset.py --text "CortexMesh can train on local text." --steps 20
+python examples/custom_text_dataset.py --text-file path/to/corpus.txt --steps 20 --save-dir checkpoints/custom-text
+```
+
 Inspect memory usage and test save/reload:
 
 ```powershell
@@ -159,6 +167,20 @@ trainer = Trainer(model, tokenizer)
 report = trainer.train_steps(steps=30, batch_size=16)
 
 print(report["first_loss"], report["last_loss"])
+```
+
+Use a custom text corpus with the same trainer:
+
+```python
+from cortexmesh import TextCorpusFactory
+
+text = "CortexMesh can learn from a tiny local corpus. " * 4
+tokenizer = CharTokenizer.from_text(text)
+config = CortexMeshConfig(vocab_size=tokenizer.vocab_size)
+model = CortexMesh(config)
+factory = TextCorpusFactory(text, tokenizer, seq_len=config.max_seq_len)
+trainer = Trainer(model, tokenizer, factory=factory, eval_factory=factory)
+report = trainer.train_steps(steps=20, batch_size=8)
 ```
 
 Save and reload a local model:
@@ -235,6 +257,7 @@ The tests include coverage for:
 - short fixed-batch CPU training;
 - training reports with evaluation breakdowns;
 - reproducible synthetic batches with metadata;
+- custom text-corpus batches;
 - persistence roundtrips;
 - evaluation metrics;
 - experimental holographic memory;

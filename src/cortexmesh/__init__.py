@@ -1,7 +1,7 @@
 """CortexMesh public API."""
 
 from .config import CortexMeshConfig
-from .data import CharTokenizer, SyntheticTaskFactory
+from .data import CharTokenizer, SyntheticTaskFactory, TextCorpusFactory
 from .evaluation import (
     compute_recall_accuracy,
     compute_rule_accuracy,
@@ -19,6 +19,7 @@ __all__ = [
     "CortexMesh",
     "CortexMeshConfig",
     "SyntheticTaskFactory",
+    "TextCorpusFactory",
     "Trainer",
     "compute_recall_accuracy",
     "compute_rule_accuracy",
