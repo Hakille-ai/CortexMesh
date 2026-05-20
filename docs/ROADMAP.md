@@ -23,11 +23,10 @@ capabilities. Current implementation notes belong in `README.md`,
    - Test with increasing key/value pairs and distractors.
    - Success metric: recall accuracy improves as prompts become longer.
 
-2. Local concept graph mixer
-   - Add fixed or rule-built local edges between concept positions, such as
-     neighbor links, separator links, or same-symbol links.
-   - Keep it strict: no Q/K/V, no pairwise self-attention matrix, no softmax
-     over all token pairs.
+2. Richer concept graph variants
+   - The first fixed local `ConceptGraphMixer` is implemented.
+   - Next variants can add rule-built edges, separator links, or same-symbol
+     links while keeping the same strict no-attention constraint.
    - Success metric: better long-distance key/value and structured sequence
      tasks without transformer mechanics.
 

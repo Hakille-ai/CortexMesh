@@ -41,7 +41,7 @@ src/cortexmesh/
   config.py      model dimensions and validation
   data.py        tokenizer, synthetic tasks, and custom text corpus batches
   baselines.py   lightweight character n-gram baseline
-  modules.py     SignalEncoder, ConceptField, MemoryLattice, RouteMixer, head
+  modules.py     SignalEncoder, ConceptField, MemoryLattice, RouteMixer, graph mixer, head
   model.py       CortexMesh assembly and forward pass
   trainer.py     CPU-friendly synthetic training loop
   evaluation.py  accuracy and internal-state metrics
@@ -196,6 +196,17 @@ report = trainer.train_steps(steps=30, batch_size=16)
 print(report["first_loss"], report["last_loss"])
 ```
 
+Enable the optional local concept graph mixer:
+
+```python
+config = CortexMeshConfig(
+    vocab_size=tokenizer.vocab_size,
+    graph_mix_layers=1,
+    graph_radius=1,
+)
+model = CortexMesh(config)
+```
+
 Use a custom text corpus with the same trainer:
 
 ```python
@@ -277,6 +288,8 @@ By default it returns:
 - `readout`: `[batch, time, concept_dim]`
 - `read_weights`: `[batch, time, memory_slots]`
 - `cycle_states`: `[cycles, batch, time, concept_dim]`
+- `graph_states`: `[cycles * graph_mix_layers, batch, time, concept_dim]`
+  only when the optional graph mixer is enabled
 
 Pass `return_internal=False` when you only need prediction outputs and summary.
 
@@ -301,6 +314,7 @@ python -m pytest
 The tests include coverage for:
 
 - forward-pass output shapes;
+- optional local concept graph mixer;
 - `MemoryLattice` read/write behavior;
 - short fixed-batch CPU training;
 - training reports with evaluation breakdowns;

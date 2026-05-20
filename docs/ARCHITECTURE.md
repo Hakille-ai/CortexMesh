@@ -18,13 +18,36 @@ as RNN, LSTM, or GRU.
    summaries back through learned gates.
 4. `RouteMixer` runs for the configured number of routing cycles, mixing local
    concepts, memory readouts, and sequence-level statistics.
-5. `PredictionHead` emits next-token logits, rule-class logits, recall logits,
+5. Optional `ConceptGraphMixer` layers propagate concept messages over a fixed
+   local graph of left/right neighbors and sequence anchors.
+6. `PredictionHead` emits next-token logits, rule-class logits, recall logits,
    and a sequence summary.
 
 `CortexMesh.forward(tokens)` expects integer token ids shaped `[batch, time]`.
 When `return_internal=True`, it also returns intermediate tensors such as
 signals, concepts, memory slots, read weights, and per-cycle states for
 inspection.
+
+## Optional Concept Graph Mixer
+
+`CortexMeshConfig(graph_mix_layers=N, graph_radius=R)` enables local concept
+graph propagation inside each routing cycle. The mixer is strict about the
+non-transformer constraint:
+
+- no Q/K/V projections;
+- no pairwise learned attention matrix;
+- no softmax over token pairs;
+- no convolution or recurrent cell.
+
+Instead, each position receives fixed left/right neighbor summaries within
+`graph_radius`, plus sequence anchors from the first concept, last concept, and
+mean concept. A learned gate decides how much of that local graph message should
+update each concept.
+
+When enabled and `return_internal=True`, the forward pass includes
+`graph_states` shaped `[cycles * graph_mix_layers, batch, time, concept_dim]`.
+The option defaults to `graph_mix_layers=0` so older configs and checkpoints
+remain compatible.
 
 ## Current Task Surface
 
@@ -57,5 +80,5 @@ deltas easier to inspect.
 ## Current vs Planned Work
 
 This document describes the implemented v0 path. Forward-looking items such as
-new memory binding schemes, local concept graphs, and broader benchmark suites
+new memory binding schemes, richer rule capsules, and broader benchmark suites
 are tracked in `docs/ROADMAP.md` until they land in code, examples, and tests.

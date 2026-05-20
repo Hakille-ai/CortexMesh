@@ -133,6 +133,66 @@ class RouteMixer(nn.Module):
         return self.norm(concepts * (1.0 - gate) + candidate * gate)
 
 
+class ConceptGraphMixer(nn.Module):
+    """Propagate concepts over a fixed local graph without attention.
+
+    The graph is deliberately simple: each position receives messages from
+    nearby left/right neighbors and from sequence-level anchors. There are no
+    Q/K/V projections, no pairwise learned attention matrix, and no softmax over
+    token pairs.
+    """
+
+    def __init__(self, concept_dim: int, route_hidden_dim: int, radius: int = 1) -> None:
+        super().__init__()
+        if radius < 1:
+            raise ValueError("radius must be at least 1")
+        self.radius = radius
+        self.local_project = nn.Linear(concept_dim * 2, concept_dim)
+        self.anchor_project = nn.Linear(concept_dim * 3, concept_dim)
+        self.candidate = nn.Sequential(
+            nn.Linear(concept_dim * 3, route_hidden_dim),
+            nn.Tanh(),
+            nn.Linear(route_hidden_dim, concept_dim),
+        )
+        self.gate = nn.Linear(concept_dim * 3, concept_dim)
+        self.norm = nn.LayerNorm(concept_dim)
+
+    def forward(self, concepts: torch.Tensor) -> torch.Tensor:
+        if concepts.ndim != 3:
+            raise ValueError("concepts must have shape [batch, time, concept_dim]")
+
+        left_context = self._directional_context(concepts, direction="left")
+        right_context = self._directional_context(concepts, direction="right")
+        local_context = torch.tanh(self.local_project(torch.cat((left_context, right_context), dim=-1)))
+
+        first = concepts[:, :1].expand_as(concepts)
+        last = concepts[:, -1:].expand_as(concepts)
+        mean = concepts.mean(dim=1, keepdim=True).expand_as(concepts)
+        anchor_context = torch.tanh(self.anchor_project(torch.cat((first, last, mean), dim=-1)))
+
+        combined = torch.cat((concepts, local_context, anchor_context), dim=-1)
+        gate = torch.sigmoid(self.gate(combined))
+        candidate = torch.tanh(self.candidate(combined))
+        return self.norm(concepts * (1.0 - gate) + candidate * gate)
+
+    def _directional_context(self, concepts: torch.Tensor, direction: str) -> torch.Tensor:
+        batch, length, dim = concepts.shape
+        context = concepts.new_zeros(batch, length, dim)
+        counts = concepts.new_zeros(batch, length, 1)
+        for offset in range(1, self.radius + 1):
+            if offset >= length:
+                break
+            if direction == "left":
+                context[:, offset:] += concepts[:, :-offset]
+                counts[:, offset:] += 1
+            elif direction == "right":
+                context[:, :-offset] += concepts[:, offset:]
+                counts[:, :-offset] += 1
+            else:
+                raise ValueError("direction must be 'left' or 'right'")
+        return context / counts.clamp_min(1.0)
+
+
 class PredictionHead(nn.Module):
     """Produce token, rule, and memory-recall predictions."""
 

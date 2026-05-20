@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from cortexmesh import CortexMesh, CortexMeshConfig, CharTokenizer, SyntheticTaskFactory, Trainer
-from cortexmesh.modules import MemoryLattice
+from cortexmesh.modules import ConceptGraphMixer, MemoryLattice
 from examples.memory_demo import run as run_memory_demo
 from examples.rule_demo import run as run_rule_demo
 from examples.text_demo import run as run_text_demo
@@ -32,6 +32,50 @@ def test_forward_shapes() -> None:
     assert output["memory"].shape == (3, model.config.memory_slots, model.config.concept_dim)
     assert output["rule_logits"].shape == (3, model.config.rule_classes)
     assert output["recall_logits"].shape == (3, tokenizer.vocab_size)
+    assert "graph_states" not in output
+
+
+def test_forward_with_concept_graph_mixer_shapes() -> None:
+    tokenizer = CharTokenizer()
+    config = CortexMeshConfig(
+        vocab_size=tokenizer.vocab_size,
+        signal_dim=24,
+        concept_dim=16,
+        memory_slots=6,
+        cycles=2,
+        route_hidden_dim=32,
+        max_seq_len=16,
+        graph_mix_layers=2,
+        graph_radius=1,
+    )
+    model = CortexMesh(config)
+    tokens = torch.randint(0, tokenizer.vocab_size, (2, 10))
+
+    output = model(tokens)
+
+    assert output["logits"].shape == (2, 10, tokenizer.vocab_size)
+    assert output["concepts"].shape == (2, 10, config.concept_dim)
+    assert output["graph_states"].shape == (
+        config.cycles * config.graph_mix_layers,
+        2,
+        10,
+        config.concept_dim,
+    )
+
+
+def test_concept_graph_mixer_is_local_without_wraparound() -> None:
+    mixer = ConceptGraphMixer(concept_dim=4, route_hidden_dim=8, radius=1)
+    concepts = torch.arange(1 * 4 * 4, dtype=torch.float32).reshape(1, 4, 4)
+
+    left = mixer._directional_context(concepts, direction="left")
+    right = mixer._directional_context(concepts, direction="right")
+
+    assert torch.allclose(left[:, 0], torch.zeros_like(left[:, 0]))
+    assert torch.allclose(left[:, 1], concepts[:, 0])
+    assert torch.allclose(left[:, 3], concepts[:, 2])
+    assert torch.allclose(right[:, 0], concepts[:, 1])
+    assert torch.allclose(right[:, 2], concepts[:, 3])
+    assert torch.allclose(right[:, 3], torch.zeros_like(right[:, 3]))
 
 
 def test_memory_lattice_writes_and_reads() -> None:

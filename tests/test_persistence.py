@@ -61,3 +61,26 @@ def test_model_save_and_load_pretrained_cpu(tmp_path) -> None:
     assert output.keys() == restored_output.keys()
     for key, value in output.items():
         assert torch.allclose(restored_output[key], value)
+
+
+def test_loading_old_checkpoint_with_new_graph_mixer_config(tmp_path) -> None:
+    torch.manual_seed(11)
+    old_model = CortexMesh(tiny_config())
+    old_model.save_pretrained(tmp_path)
+
+    graph_config = CortexMeshConfig.from_dict(
+        {
+            **old_model.config.to_dict(),
+            "graph_mix_layers": 1,
+            "graph_radius": 1,
+        }
+    )
+    graph_config.save_json(tmp_path / "config.json")
+
+    restored = CortexMesh.from_pretrained(tmp_path)
+    tokens = torch.randint(0, restored.config.vocab_size, (2, 5))
+    output = restored(tokens)
+
+    assert restored.config.graph_mix_layers == 1
+    assert "graph_states" in output
+    assert output["graph_states"].shape[0] == restored.config.cycles

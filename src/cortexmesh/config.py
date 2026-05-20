@@ -20,6 +20,8 @@ class CortexMeshConfig:
     route_hidden_dim: int = 96
     max_seq_len: int = 64
     rule_classes: int = 4
+    graph_mix_layers: int = 0
+    graph_radius: int = 1
 
     def to_dict(self) -> dict[str, int]:
         """Return a JSON-serializable representation of this config."""
@@ -67,3 +69,7 @@ class CortexMeshConfig:
             raise ValueError("max_seq_len must be at least 4")
         if self.rule_classes < 4:
             raise ValueError("rule_classes must be at least 4")
+        if self.graph_mix_layers < 0:
+            raise ValueError("graph_mix_layers must be non-negative")
+        if self.graph_radius < 1:
+            raise ValueError("graph_radius must be at least 1")
