@@ -42,3 +42,20 @@ claiming broad language-model capability.
 an inline string or text file into next-character batches compatible with
 `Trainer`, using the same `[inputs, targets]` shape as the synthetic tasks while
 leaving rule and recall masks disabled.
+
+`CurriculumTaskFactory` wraps `SyntheticTaskFactory` for staged experiments.
+Phase 0 emits short text-only batches, phase 1 mixes text and rules, and phase 2
+mixes text, rules, and memory examples. It can be driven directly with
+`make_batch(..., step=...)` or passed to `Trainer`, which forwards training step
+information when a factory supports it.
+
+Inspection helpers in `cortexmesh.inspection` summarize the internal tensors
+returned by the forward pass. They keep visualization and debugging code out of
+the core model while making memory slots, read weights, concept norms, and cycle
+deltas easier to inspect.
+
+## Current vs Planned Work
+
+This document describes the implemented v0 path. Forward-looking items such as
+new memory binding schemes, local concept graphs, and broader benchmark suites
+are tracked in `docs/ROADMAP.md` until they land in code, examples, and tests.

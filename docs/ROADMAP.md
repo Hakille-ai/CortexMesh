@@ -4,6 +4,17 @@ This document captures the current v1 direction for CortexMesh. The goal is to
 make the project useful as a small research kit for concept compression, gated
 routing, and differentiable external memory.
 
+## Coordination Notes
+
+This roadmap is intentionally forward-looking. Items below are research
+directions unless they are also documented in the README, architecture notes,
+evaluation notes, examples, or tests as current behavior.
+
+When several agents are editing CortexMesh at once, keep roadmap changes narrow:
+record planned work here, but avoid presenting planned features as shipped
+capabilities. Current implementation notes belong in `README.md`,
+`docs/ARCHITECTURE.md`, and `docs/EVALUATION.md`.
+
 ## Architecture Ideas
 
 1. Holographic memory binding
@@ -81,15 +92,15 @@ stable, so the project can tell whether they genuinely help.
 
 Near-term work:
 
-- `Trainer.evaluate(...)` with per-skill metrics.
-- JSON/CSV benchmark runner for reproducible CPU experiments.
-- model/config save and load helpers.
-- example for inspecting memory read weights.
-- docs explaining architecture, limits, and non-transformer constraints.
+- compare `CharNGramBaseline` against CortexMesh on the same text-corpus splits.
+- add persisted benchmark result examples after the metrics stabilize.
+- add richer curriculum phases for composed rule + memory tasks.
+- add visual reports for memory read weights and cycle deltas.
+- document longer-running experiments separately from smoke tests.
 
 Medium-term work:
 
-- benchmark against simple baselines such as n-gram and MLP sequence models.
+- benchmark against additional simple baselines such as MLP sequence models.
 - ablations without memory, without routing cycles, and with varied slot counts.
 - custom dataset adapter for user-provided character sequences.
 

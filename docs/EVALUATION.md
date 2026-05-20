@@ -24,6 +24,13 @@ Run a short demo smoke test:
 python -m cortexmesh.demo --steps 30 --batch-size 16 --seed 11
 ```
 
+For a fast development loop, keep the commands small:
+
+```powershell
+python -m pytest
+python -m cortexmesh.demo --steps 2 --batch-size 4 --seed 13
+```
+
 ## What Is Measured Today
 
 `Trainer.evaluate(...)` returns a deterministic loss report over synthetic
@@ -50,6 +57,14 @@ factory = TextCorpusFactory(text, tokenizer, seq_len=24, seed=13)
 batch = factory.make_batch(4, fixed_cycle=True)
 ```
 
+The matching example script exposes the same path from the command line:
+
+```powershell
+python examples/custom_text_dataset.py --text "tiny local corpus" --steps 20 --batch-size 8 --seq-len 24
+python examples/custom_text_dataset.py --text-file path/to/corpus.txt --steps 20 --prompt "cortex" --save-dir checkpoints/custom-text
+python -m cortexmesh.train_text --text "tiny local corpus" --steps 20 --json-output
+```
+
 The `cortexmesh.evaluation` module also exposes lightweight metrics for a model
 output or batch:
 
@@ -63,12 +78,26 @@ output or batch:
 These helpers are intentionally small and operate on the tensors already
 returned by `CortexMesh.forward(...)`.
 
+`Trainer.evaluate(..., include_metrics=True)` includes the same metric family in
+the trainer report, aggregated over evaluation batches.
+
+For a non-neural sanity baseline, `CharNGramBaseline` provides a deterministic
+character n-gram model:
+
+```python
+from cortexmesh import CharNGramBaseline
+
+baseline = CharNGramBaseline(max_order=4).fit("tiny local corpus " * 8)
+print(baseline.score_next_token_accuracy("tiny local corpus " * 2, seq_len=8))
+```
+
 ## Benchmark Smoke Runner
 
 For reproducible CPU smoke measurements, use:
 
 ```powershell
 python benchmarks/run_benchmark.py --config tiny --steps 2 --batch-size 4
+python benchmarks/run_benchmark.py --config small --steps 5 --batch-size 8 --eval-batches 1 --json-output reports/bench-small.json
 ```
 
 Useful options:
@@ -87,8 +116,8 @@ claims.
 
 ## Not Covered Here
 
-This document only covers the local pytest, demo, metric helpers, and benchmark
-smoke checks that are part of the current public workflow. Saved benchmark
-artifacts, baseline model comparisons, and long-run quality claims should be
-documented alongside their integration. Related evaluation ideas are tracked in
-`docs/ROADMAP.md`.
+This document only covers the local pytest, demo, metric helpers, n-gram
+baseline, and benchmark smoke checks that are part of the current public
+workflow. Saved benchmark artifacts, broader baseline comparisons, and long-run
+quality claims should be documented alongside their integration. Related
+evaluation ideas are tracked in `docs/ROADMAP.md`.

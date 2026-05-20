@@ -31,4 +31,14 @@ jobs:
           python -m pip install -e ".[test]"
 
       - name: Run tests
-        run: python -m pytest
+        run: |
+          mkdir -p test-results
+          python -m pytest 2>&1 | tee test-results/pytest-${{ matrix.python-version }}.log
+
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log-${{ matrix.python-version }}
+          path: test-results/pytest-${{ matrix.python-version }}.log
+          if-no-files-found: ignore

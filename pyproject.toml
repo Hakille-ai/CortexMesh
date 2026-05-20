@@ -49,6 +49,7 @@ Issues = "https://github.com/Hakille-ai/CortexMesh/issues"
 
 [project.scripts]
 cortexmesh-demo = "cortexmesh.demo:main"
+cortexmesh-train-text = "cortexmesh.train_text:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

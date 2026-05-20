@@ -40,12 +40,15 @@ PyTorch is used for tensors, modules, autograd, and optimization.
 src/cortexmesh/
   config.py      model dimensions and validation
   data.py        tokenizer, synthetic tasks, and custom text corpus batches
+  baselines.py   lightweight character n-gram baseline
   modules.py     SignalEncoder, ConceptField, MemoryLattice, RouteMixer, head
   model.py       CortexMesh assembly and forward pass
   trainer.py     CPU-friendly synthetic training loop
   evaluation.py  accuracy and internal-state metrics
+  inspection.py  reusable memory/concept inspection helpers
   inference.py   generate_text, solve_rule_task, recall_memory helpers
   experimental.py standalone research components
+  train_text.py  package CLI for custom text training
   demo.py        command-line demo
 
 examples/
@@ -77,6 +80,21 @@ For tests, install the test extra:
 ```powershell
 python -m pip install -e ".[test]"
 ```
+
+## Development Workflow
+
+Recommended local loop from the repository root:
+
+```powershell
+python -m pip install -e ".[test]"
+python -m pytest
+python -m cortexmesh.demo --steps 2 --batch-size 4 --seed 13
+python benchmarks/run_benchmark.py --config tiny --steps 2 --batch-size 4
+```
+
+Use the short demo and benchmark commands as CPU smoke checks before longer
+experiments. They verify that training, evaluation, examples, and benchmark
+plumbing still run without making claims about model quality.
 
 ## Quick Start
 
@@ -139,6 +157,14 @@ Train on your own small text corpus:
 ```powershell
 python examples/custom_text_dataset.py --text "CortexMesh can train on local text." --steps 20
 python examples/custom_text_dataset.py --text-file path/to/corpus.txt --steps 20 --save-dir checkpoints/custom-text
+python examples/custom_text_dataset.py --text-file path/to/corpus.txt --steps 20 --batch-size 8 --seq-len 24 --prompt "cortex"
+```
+
+The package CLI exposes the same training path:
+
+```powershell
+python -m cortexmesh.train_text --text "CortexMesh can train on local text." --steps 20 --json-output
+cortexmesh-train-text --text-file path/to/corpus.txt --steps 20 --save-dir checkpoints/custom-text
 ```
 
 Inspect memory usage and test save/reload:
@@ -152,6 +178,7 @@ Run the minimal CPU benchmark:
 
 ```powershell
 python benchmarks/run_benchmark.py --config tiny --steps 2 --batch-size 4
+python benchmarks/run_benchmark.py --config small --steps 5 --batch-size 8 --eval-batches 1 --json-output reports/bench-small.json
 ```
 
 ## Minimal API
@@ -198,6 +225,27 @@ from cortexmesh import SyntheticTaskFactory, evaluate_batch
 batch = SyntheticTaskFactory(tokenizer, seq_len=config.max_seq_len).make_batch(8)
 metrics = evaluate_batch(model, batch)
 print(metrics)
+```
+
+Use curriculum batches and a simple n-gram baseline:
+
+```python
+from cortexmesh import CharNGramBaseline, CurriculumTaskFactory
+
+curriculum = CurriculumTaskFactory(tokenizer, seq_len=config.max_seq_len)
+batch = curriculum.make_batch(8, step=250, fixed_cycle=True)
+
+baseline = CharNGramBaseline(max_order=4).fit("cortex mesh memory " * 8)
+print(baseline.generate("cortex ", steps=16))
+```
+
+Inspect model internals from code:
+
+```python
+from cortexmesh import summarize_prompt
+
+report = summarize_prompt(model, tokenizer, "a=3;b=7;c=1;?b=")
+print(report["memory_shape"], report["top_reads"][:3])
 ```
 
 Inference helpers:
@@ -257,9 +305,12 @@ The tests include coverage for:
 - short fixed-batch CPU training;
 - training reports with evaluation breakdowns;
 - reproducible synthetic batches with metadata;
+- curriculum synthetic batches;
 - custom text-corpus batches;
+- character n-gram baseline;
 - persistence roundtrips;
 - evaluation metrics;
+- inspection helpers;
 - experimental holographic memory;
 - benchmark smoke execution;
 - example execution.
@@ -280,6 +331,10 @@ The same command is used by the GitHub Actions workflow in
 The current v1 research notes live in [docs/ROADMAP.md](docs/ROADMAP.md).
 They prioritize memory binding, richer synthetic curricula, separate skill
 metrics, CPU benchmarks, and a clearer research-kit API.
+
+When multiple agents are working in the repository, treat the roadmap as a
+coordination note rather than a claim that every listed item is implemented.
+Docs should describe current behavior separately from planned experiments.
 
 ## License
 

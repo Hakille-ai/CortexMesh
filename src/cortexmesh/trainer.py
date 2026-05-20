@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
+import math
 from typing import Any
 
 import torch
 import torch.nn.functional as F
 
 from .data import CharTokenizer, SyntheticTaskFactory
+from .evaluation import (
+    compute_recall_accuracy,
+    compute_rule_accuracy,
+    compute_token_accuracy,
+    cycle_delta_norm,
+    memory_slot_entropy,
+)
 from .model import CortexMesh
 
 
@@ -75,6 +84,13 @@ class Trainer:
 
     def compute_loss(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, LossBreakdown]:
         output = self.model(batch["inputs"])
+        return self._compute_loss_from_output(output, batch)
+
+    def _compute_loss_from_output(
+        self,
+        output: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, LossBreakdown]:
         vocab_size = output["logits"].shape[-1]
         token_loss = F.cross_entropy(
             output["logits"].reshape(-1, vocab_size),
@@ -112,32 +128,44 @@ class Trainer:
             recall=float(recall_loss.detach().cpu()),
         )
 
-    def evaluate(self, batches: int = 4, batch_size: int = 16) -> dict[str, object]:
+    def evaluate(
+        self,
+        batches: int = 4,
+        batch_size: int = 16,
+        include_metrics: bool = False,
+    ) -> dict[str, object]:
         """Run a small deterministic evaluation pass without updating weights."""
 
         if batches < 1:
             raise ValueError("batches must be at least 1")
         was_training = self.model.training
-        eval_rng_state = self.eval_factory.rng.getstate()
+        eval_rng_state = _get_rng_state(self.eval_factory)
         self.model.eval()
         breakdowns: list[LossBreakdown] = []
+        metric_batches: list[dict[str, float]] = []
         with torch.no_grad():
             for _ in range(batches):
-                batch = self.eval_factory.make_batch(batch_size, self.device, fixed_cycle=True).as_dict()
-                _, breakdown = self.compute_loss(batch)
+                batch = _make_batch(self.eval_factory, batch_size, self.device, fixed_cycle=True).as_dict()
+                output = self.model(batch["inputs"])
+                _, breakdown = self._compute_loss_from_output(output, batch)
                 breakdowns.append(breakdown)
-        self.eval_factory.rng.setstate(eval_rng_state)
+                if include_metrics:
+                    metric_batches.append(_output_metrics(output, batch))
+        _restore_rng_state(self.eval_factory, eval_rng_state)
         if was_training:
             self.model.train()
 
         mean = LossBreakdown.mean(breakdowns)
-        return {
+        result: dict[str, object] = {
             "loss": mean.total,
             "breakdown": mean,
             "breakdown_dict": mean.as_dict(),
             "batches": batches,
             "batch_size": batch_size,
         }
+        if include_metrics:
+            result["metrics"] = _mean_metrics(metric_batches)
+        return result
 
     def train_steps(
         self,
@@ -160,8 +188,14 @@ class Trainer:
         losses: list[float] = []
         skipped_steps = 0
         last_breakdown: LossBreakdown | None = None
-        for _ in range(steps):
-            batch = fixed or self.factory.make_batch(batch_size, self.device, fixed_cycle=True).as_dict()
+        for step in range(steps):
+            batch = fixed or _make_batch(
+                self.factory,
+                batch_size,
+                self.device,
+                fixed_cycle=True,
+                step=step,
+            ).as_dict()
             self.optimizer.zero_grad(set_to_none=True)
             loss, breakdown = self.compute_loss(batch)
             if not torch.isfinite(loss):
@@ -204,3 +238,56 @@ def _moving_average(values: list[float], window: int = 5) -> list[float]:
         span = values[start : idx + 1]
         smoothed.append(sum(span) / len(span))
     return smoothed
+
+
+def _output_metrics(output: dict[str, torch.Tensor], batch: dict[str, torch.Tensor]) -> dict[str, float]:
+    return {
+        "token_accuracy": compute_token_accuracy(output, batch),
+        "rule_accuracy": compute_rule_accuracy(output, batch),
+        "recall_accuracy": compute_recall_accuracy(output, batch),
+        "memory_slot_entropy": memory_slot_entropy(output),
+        "cycle_delta_norm": cycle_delta_norm(output),
+    }
+
+
+def _mean_metrics(metric_batches: list[dict[str, float]]) -> dict[str, float]:
+    if not metric_batches:
+        return {}
+    mean: dict[str, float] = {}
+    for key in metric_batches[0]:
+        values = [metrics[key] for metrics in metric_batches if not math.isnan(metrics[key])]
+        mean[key] = sum(values) / len(values) if values else float("nan")
+    return mean
+
+
+def _make_batch(
+    factory: Any,
+    batch_size: int,
+    device: torch.device,
+    fixed_cycle: bool,
+    step: int | None = None,
+) -> Any:
+    signature = inspect.signature(factory.make_batch)
+    if "step" in signature.parameters:
+        return factory.make_batch(batch_size, device, fixed_cycle=fixed_cycle, step=step)
+    return factory.make_batch(batch_size, device, fixed_cycle=fixed_cycle)
+
+
+def _get_rng_state(factory: Any) -> object | None:
+    rng = _factory_rng(factory)
+    return rng.getstate() if rng is not None else None
+
+
+def _restore_rng_state(factory: Any, state: object | None) -> None:
+    rng = _factory_rng(factory)
+    if rng is not None and state is not None:
+        rng.setstate(state)
+
+
+def _factory_rng(factory: Any) -> Any | None:
+    if hasattr(factory, "rng"):
+        return factory.rng
+    synthetic = getattr(factory, "synthetic_factory", None)
+    if synthetic is not None and hasattr(synthetic, "rng"):
+        return synthetic.rng
+    return None

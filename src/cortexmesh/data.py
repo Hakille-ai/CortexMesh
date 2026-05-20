@@ -6,7 +6,7 @@ import json
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, overload
+from typing import Literal, Sequence, overload
 
 import torch
 
@@ -341,6 +341,195 @@ class SyntheticTaskFactory:
                 "variants": variants,
                 "memory_query_keys": query_keys,
                 "memory_answers": answers,
+            },
+        )
+
+
+class CurriculumTaskFactory:
+    """Phase-based wrapper around SyntheticTaskFactory for staged synthetic data."""
+
+    _TASK_ORDER = ("text", "rule", "memory")
+    _PHASE_TASK_MIXES = {
+        0: {"text": 1},
+        1: {"text": 2, "rule": 1},
+        2: {"text": 1, "rule": 1, "memory": 1},
+    }
+
+    def __init__(
+        self,
+        tokenizer: CharTokenizer | None = None,
+        seq_len: int = 32,
+        seed: int = 7,
+        phase: int | None = None,
+        schedule: Sequence[tuple[int, int]] | None = None,
+        synthetic_factory: SyntheticTaskFactory | None = None,
+    ) -> None:
+        if seq_len < 1:
+            raise ValueError("seq_len must be at least 1")
+        if phase is not None:
+            self._validate_phase(phase)
+
+        self.tokenizer = tokenizer or (
+            synthetic_factory.tokenizer if synthetic_factory else CharTokenizer()
+        )
+        self.seq_len = seq_len
+        self.seed = seed
+        self.phase = phase
+        self.schedule = self._normalize_schedule(schedule)
+        self.synthetic_factory = synthetic_factory or SyntheticTaskFactory(
+            self.tokenizer,
+            seq_len=seq_len,
+            seed=seed,
+        )
+
+    @classmethod
+    def _validate_phase(cls, phase: int) -> None:
+        if phase not in cls._PHASE_TASK_MIXES:
+            raise ValueError("phase must be one of 0, 1, or 2")
+
+    @classmethod
+    def _normalize_schedule(
+        cls,
+        schedule: Sequence[tuple[int, int]] | None,
+    ) -> list[tuple[int, int]]:
+        if schedule is None:
+            schedule = ((0, 0), (100, 1), (500, 2))
+        normalized: list[tuple[int, int]] = []
+        for start_step, phase in schedule:
+            if start_step < 0:
+                raise ValueError("schedule steps must be non-negative")
+            cls._validate_phase(phase)
+            normalized.append((int(start_step), int(phase)))
+        if not normalized:
+            raise ValueError("schedule must contain at least one phase")
+        return sorted(normalized, key=lambda item: item[0])
+
+    def phase_for_step(self, step: int | None = None) -> int:
+        """Return the active curriculum phase for a training step."""
+
+        if self.phase is not None:
+            return self.phase
+        current_step = 0 if step is None else step
+        if current_step < 0:
+            raise ValueError("step must be non-negative")
+
+        active_phase = self.schedule[0][1]
+        for start_step, phase in self.schedule:
+            if current_step < start_step:
+                break
+            active_phase = phase
+        return active_phase
+
+    def seq_len_for_phase(self, phase: int) -> int:
+        """Return the effective sequence length for a phase."""
+
+        self._validate_phase(phase)
+        if phase == 0:
+            return max(1, self.seq_len // 2)
+        if phase == 1:
+            return max(1, (self.seq_len * 3) // 4)
+        return self.seq_len
+
+    def _task_for_index(self, idx: int, phase: int, fixed_cycle: bool) -> str:
+        task_mix = self._PHASE_TASK_MIXES[phase]
+        if fixed_cycle:
+            cycle = [
+                task for task in self._TASK_ORDER for _ in range(int(task_mix.get(task, 0)))
+            ]
+            return cycle[idx % len(cycle)]
+
+        total = sum(task_mix.values())
+        draw = self.synthetic_factory.rng.uniform(0, total)
+        cumulative = 0.0
+        for task in self._TASK_ORDER:
+            cumulative += task_mix.get(task, 0)
+            if draw <= cumulative:
+                return task
+        return next(reversed(task_mix))
+
+    def _example_for_task(self, task: str) -> _SyntheticExample:
+        if task == "text":
+            return self.synthetic_factory._text_example()
+        if task == "rule":
+            return self.synthetic_factory._rule_example()
+        if task == "memory":
+            return self.synthetic_factory._memory_example()
+        raise ValueError(f"unknown synthetic task: {task}")
+
+    def make_batch(
+        self,
+        batch_size: int,
+        device: torch.device | str | None = None,
+        fixed_cycle: bool = False,
+        step: int | None = None,
+    ) -> SyntheticBatch:
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
+
+        phase = self.phase_for_step(step)
+        active_seq_len = self.seq_len_for_phase(phase)
+        original_seq_len = self.synthetic_factory.seq_len
+        self.synthetic_factory.seq_len = active_seq_len
+
+        inputs: list[list[int]] = []
+        targets: list[list[int]] = []
+        rule_labels: list[int] = []
+        rule_mask: list[bool] = []
+        recall_targets: list[int] = []
+        recall_mask: list[bool] = []
+        task_types: list[str] = []
+        variants: list[str] = []
+        query_keys: list[str | None] = []
+        answers: list[str | None] = []
+
+        try:
+            for idx in range(batch_size):
+                task = self._task_for_index(idx, phase=phase, fixed_cycle=fixed_cycle)
+                example = self._example_for_task(task)
+                ids = self.tokenizer.encode(example.text, pad_to=active_seq_len + 1)
+                inputs.append(ids[:-1])
+                targets.append(ids[1:])
+                rule_labels.append(example.rule_label)
+                rule_mask.append(example.is_rule)
+                recall_targets.append(example.recall_target)
+                recall_mask.append(example.is_memory)
+                task_types.append(example.task_type)
+                variants.append(example.variant)
+                query_keys.append(example.query_key)
+                answers.append(example.answer)
+        finally:
+            self.synthetic_factory.seq_len = original_seq_len
+
+        tensor_device = torch.device(device) if device is not None else None
+        task_counts = {task: task_types.count(task) for task in sorted(set(task_types))}
+        task_mix = dict(self._PHASE_TASK_MIXES[phase])
+        return SyntheticBatch(
+            inputs=torch.tensor(inputs, dtype=torch.long, device=tensor_device),
+            targets=torch.tensor(targets, dtype=torch.long, device=tensor_device),
+            rule_labels=torch.tensor(rule_labels, dtype=torch.long, device=tensor_device),
+            rule_mask=torch.tensor(rule_mask, dtype=torch.bool, device=tensor_device),
+            recall_targets=torch.tensor(recall_targets, dtype=torch.long, device=tensor_device),
+            recall_mask=torch.tensor(recall_mask, dtype=torch.bool, device=tensor_device),
+            metadata={
+                "seed": self.seed,
+                "seq_len": active_seq_len,
+                "base_seq_len": self.seq_len,
+                "batch_size": batch_size,
+                "fixed_cycle": fixed_cycle,
+                "task_types": task_types,
+                "task_counts": task_counts,
+                "variants": variants,
+                "memory_query_keys": query_keys,
+                "memory_answers": answers,
+                "curriculum": {
+                    "phase": phase,
+                    "step": step,
+                    "seq_len": active_seq_len,
+                    "base_seq_len": self.seq_len,
+                    "task_mix": task_mix,
+                    "schedule": list(self.schedule),
+                    "fixed_phase": self.phase is not None,
+                },
             },
         )
 
